@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/gorilla/websocket"
 	r "gopkg.in/gorethink/gorethink.v4"
 )
@@ -18,6 +20,8 @@ type Client struct {
 	findHandler  FindHandler
 	session      *r.Session
 	stopChannels map[int]chan bool
+	id           string
+	userName     string
 }
 
 func (client *Client) NewStopChannel(stopKey int) chan bool {
@@ -40,6 +44,8 @@ func (client *Client) Close() {
 		channel <- true
 	}
 	close(client.send)
+
+	r.Table("user").Get(client.id).Delete().Exec(client.session)
 }
 
 func (client *Client) Read() {
@@ -67,11 +73,27 @@ func (client *Client) Write() {
 }
 
 func NewClient(socket *websocket.Conn, findHandler FindHandler, session *r.Session) *Client {
+	var user User
+	var id string
+
+	user.Name = "anonymous"
+
+	response, err := r.Table("user").Insert(user).RunWrite(session)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	if len(response.GeneratedKeys) > 0 {
+		id = response.GeneratedKeys[0]
+	}
+
 	return &Client{
 		send:         make(chan Message),
 		socket:       socket,
 		findHandler:  findHandler,
 		session:      session,
 		stopChannels: make(map[int]chan bool),
+		id:           id,
+		userName:     user.Name,
 	}
 }
