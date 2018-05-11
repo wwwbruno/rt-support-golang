@@ -13,10 +13,33 @@ type Message struct {
 type FindHandler func(string) (Handler, bool)
 
 type Client struct {
-	send        chan Message
-	socket      *websocket.Conn
-	findHandler FindHandler
-	session     *r.Session
+	send         chan Message
+	socket       *websocket.Conn
+	findHandler  FindHandler
+	session      *r.Session
+	stopChannels map[int]chan bool
+}
+
+func (client *Client) NewStopChannel(stopKey int) chan bool {
+	client.StopForKey(stopKey)
+
+	stop := make(chan bool)
+	client.stopChannels[stopKey] = stop
+	return stop
+}
+
+func (client *Client) StopForKey(key int) {
+	if channel, found := client.stopChannels[key]; found {
+		channel <- true
+		delete(client.stopChannels, key)
+	}
+}
+
+func (client *Client) Close() {
+	for _, channel := range client.stopChannels {
+		channel <- true
+	}
+	close(client.send)
 }
 
 func (client *Client) Read() {
@@ -45,9 +68,10 @@ func (client *Client) Write() {
 
 func NewClient(socket *websocket.Conn, findHandler FindHandler, session *r.Session) *Client {
 	return &Client{
-		send:        make(chan Message),
-		socket:      socket,
-		findHandler: findHandler,
-		session:     session,
+		send:         make(chan Message),
+		socket:       socket,
+		findHandler:  findHandler,
+		session:      session,
+		stopChannels: make(map[int]chan bool),
 	}
 }
