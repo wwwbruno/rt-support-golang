@@ -15,20 +15,7 @@ const (
 
 func addChannel(client *Client, data interface{}) {
 	var channel Channel
-
-	err := mapstructure.Decode(data, &channel)
-	if err != nil {
-		client.send <- Message{"error", err.Error()}
-		return
-	}
-
-	go func() {
-		err = r.Table("channel").Insert(channel).Exec(client.session)
-		if err != nil {
-			client.send <- Message{"error", err.Error()}
-			fmt.Println(err.Error())
-		}
-	}()
+	adder(client, "channel", data, &channel)
 }
 
 func subscribeChannel(client *Client, data interface{}) {
@@ -87,19 +74,7 @@ func addMessage(client *Client, data interface{}) {
 	var channelMessage ChannelMessage
 	channelMessage.User = client.userName
 
-	err := mapstructure.Decode(data, &channelMessage)
-	if err != nil {
-		client.send <- Message{"error", err.Error()}
-		return
-	}
-
-	go func() {
-		err = r.Table("message").Insert(channelMessage).Exec(client.session)
-		if err != nil {
-			client.send <- Message{"error", err.Error()}
-			fmt.Println(err.Error())
-		}
-	}()
+	adder(client, "message", data, &channelMessage)
 }
 
 func subscribeMessage(client *Client, data interface{}) {
@@ -121,6 +96,22 @@ func subscribeMessage(client *Client, data interface{}) {
 
 func unsubscribeMessage(client *Client, data interface{}) {
 	client.StopForKey(MessageStop)
+}
+
+func adder(client *Client, channel string, data interface{}, message interface{}) {
+	err := mapstructure.Decode(data, message)
+	if err != nil {
+		client.send <- Message{"error", err.Error()}
+		return
+	}
+
+	go func() {
+		err = r.Table(channel).Insert(message).Exec(client.session)
+		if err != nil {
+			client.send <- Message{"error", err.Error()}
+			fmt.Println(err.Error())
+		}
+	}()
 }
 
 func subscriber(client *Client, cursor *r.Cursor, stopKey int, channel string) {
