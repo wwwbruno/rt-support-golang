@@ -32,8 +32,6 @@ func addChannel(client *Client, data interface{}) {
 }
 
 func subscribeChannel(client *Client, data interface{}) {
-	stop := client.NewStopChannel(ChannelStop)
-	result := make(chan r.ChangeResponse)
 	cursor, err := r.Table("channel").
 		Changes(r.ChangesOpts{IncludeInitial: true}).
 		Run(client.session)
@@ -42,26 +40,7 @@ func subscribeChannel(client *Client, data interface{}) {
 		return
 	}
 
-	go func() {
-		var change r.ChangeResponse
-		for cursor.Next(&change) {
-			result <- change
-		}
-	}()
-
-	go func() {
-		for {
-			select {
-			case <-stop:
-				cursor.Close()
-				return
-			case change := <-result:
-				if change.NewValue != nil && change.OldValue == nil {
-					client.send <- Message{"channel add", change.NewValue}
-				}
-			}
-		}
-	}()
+	subscriber(client, cursor, ChannelStop, "channel")
 }
 
 func unsubscribeChannel(client *Client, data interface{}) {
@@ -69,7 +48,6 @@ func unsubscribeChannel(client *Client, data interface{}) {
 }
 
 func editUser(client *Client, data interface{}) {
-	fmt.Printf("#%v\n", data)
 	var user User
 
 	err := mapstructure.Decode(data, &user)
@@ -90,8 +68,6 @@ func editUser(client *Client, data interface{}) {
 }
 
 func subscribeUser(client *Client, data interface{}) {
-	stop := client.NewStopChannel(UserStop)
-	result := make(chan r.ChangeResponse)
 	cursor, err := r.Table("user").
 		Changes(r.ChangesOpts{IncludeInitial: true}).
 		Run(client.session)
@@ -100,30 +76,7 @@ func subscribeUser(client *Client, data interface{}) {
 		return
 	}
 
-	go func() {
-		var change r.ChangeResponse
-		for cursor.Next(&change) {
-			result <- change
-		}
-	}()
-
-	go func() {
-		for {
-			select {
-			case <-stop:
-				cursor.Close()
-				return
-			case change := <-result:
-				if change.NewValue != nil && change.OldValue == nil {
-					client.send <- Message{"user add", change.NewValue}
-				} else if change.NewValue != nil && change.OldValue != nil {
-					client.send <- Message{"user edit", change.NewValue}
-				} else if change.NewValue == nil && change.OldValue != nil {
-					client.send <- Message{"user remove", change.OldValue}
-				}
-			}
-		}
-	}()
+	subscriber(client, cursor, UserStop, "user")
 }
 
 func unsubscribeUser(client *Client, data interface{}) {
@@ -154,8 +107,6 @@ func subscribeMessage(client *Client, data interface{}) {
 	val, _ := eventData["channelId"]
 	channelID, _ := val.(string)
 
-	stop := client.NewStopChannel(MessageStop)
-	result := make(chan r.ChangeResponse)
 	cursor, err := r.Table("message").
 		Filter(r.Row.Field("channelId").Eq(channelID)).
 		Changes(r.ChangesOpts{IncludeInitial: true}).
@@ -164,6 +115,17 @@ func subscribeMessage(client *Client, data interface{}) {
 		client.send <- Message{"Error", err.Error()}
 		return
 	}
+
+	subscriber(client, cursor, MessageStop, "message")
+}
+
+func unsubscribeMessage(client *Client, data interface{}) {
+	client.StopForKey(MessageStop)
+}
+
+func subscriber(client *Client, cursor *r.Cursor, stopKey int, channel string) {
+	result := make(chan r.ChangeResponse)
+	stop := client.NewStopChannel(stopKey)
 
 	go func() {
 		var change r.ChangeResponse
@@ -180,13 +142,13 @@ func subscribeMessage(client *Client, data interface{}) {
 				return
 			case change := <-result:
 				if change.NewValue != nil && change.OldValue == nil {
-					client.send <- Message{"message add", change.NewValue}
+					client.send <- Message{fmt.Sprintf("%s add", channel), change.NewValue}
+				} else if change.NewValue != nil && change.OldValue != nil {
+					client.send <- Message{fmt.Sprintf("%s edit", channel), change.NewValue}
+				} else if change.NewValue == nil && change.OldValue != nil {
+					client.send <- Message{fmt.Sprintf("%s remove", channel), change.OldValue}
 				}
 			}
 		}
 	}()
-}
-
-func unsubscribeMessage(client *Client, data interface{}) {
-	client.StopForKey(MessageStop)
 }
