@@ -19,15 +19,9 @@ func addChannel(client *Client, data interface{}) {
 }
 
 func subscribeChannel(client *Client, data interface{}) {
-	cursor, err := r.Table("channel").
-		Changes(r.ChangesOpts{IncludeInitial: true}).
-		Run(client.session)
-	if err != nil {
-		client.send <- Message{"Error", err.Error()}
-		return
-	}
+	var filter interface{}
 
-	subscriber(client, cursor, ChannelStop, "channel")
+	subscriber(client, ChannelStop, "channel", filter)
 }
 
 func unsubscribeChannel(client *Client, data interface{}) {
@@ -55,15 +49,9 @@ func editUser(client *Client, data interface{}) {
 }
 
 func subscribeUser(client *Client, data interface{}) {
-	cursor, err := r.Table("user").
-		Changes(r.ChangesOpts{IncludeInitial: true}).
-		Run(client.session)
-	if err != nil {
-		client.send <- Message{"Error", err.Error()}
-		return
-	}
+	var filter interface{}
 
-	subscriber(client, cursor, UserStop, "user")
+	subscriber(client, UserStop, "user", filter)
 }
 
 func unsubscribeUser(client *Client, data interface{}) {
@@ -82,16 +70,9 @@ func subscribeMessage(client *Client, data interface{}) {
 	val, _ := eventData["channelId"]
 	channelID, _ := val.(string)
 
-	cursor, err := r.Table("message").
-		Filter(r.Row.Field("channelId").Eq(channelID)).
-		Changes(r.ChangesOpts{IncludeInitial: true}).
-		Run(client.session)
-	if err != nil {
-		client.send <- Message{"Error", err.Error()}
-		return
-	}
+	filter := r.Row.Field("channelId").Eq(channelID)
 
-	subscriber(client, cursor, MessageStop, "message")
+	subscriber(client, MessageStop, "message", filter)
 }
 
 func unsubscribeMessage(client *Client, data interface{}) {
@@ -114,9 +95,21 @@ func adder(client *Client, channel string, data interface{}, message interface{}
 	}()
 }
 
-func subscriber(client *Client, cursor *r.Cursor, stopKey int, channel string) {
+func subscriber(client *Client, stopKey int, channel string, filter interface{}) {
 	result := make(chan r.ChangeResponse)
 	stop := client.NewStopChannel(stopKey)
+	if filter == nil {
+		filter = `gorethink:"default,omitempty"`
+	}
+
+	cursor, err := r.Table(channel).
+		Filter(filter).
+		Changes(r.ChangesOpts{IncludeInitial: true}).
+		Run(client.session)
+	if err != nil {
+		client.send <- Message{"Error", err.Error()}
+		return
+	}
 
 	go func() {
 		var change r.ChangeResponse
